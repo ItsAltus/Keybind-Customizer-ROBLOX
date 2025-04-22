@@ -2,9 +2,13 @@
 -- Script Name: KeybindMenu.client.lua
 -- Project: Keybind Customizer
 -- Author: DrChicken2424
--- Description: Renders the “Keybinds” ScreenGui, clones an
---              entry for every action, and handles the
+-- Description: Renders the Keybinds ScreenGui, clones an
+--              entry for every action, and handles the full
 --              rebind -> conflict‑check -> save pipeline.
+--              Extras:
+--                * Toggle‑menu hint
+--                * DataStore persistence (via RemoteFunction)
+--                * Export / Import JSON modal
 -- ============================================================
 
 ---------------------------------------------------------------
@@ -13,57 +17,60 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
+local CAS = game:GetService("ContextActionService")
+local HttpService = game:GetService("HttpService")
 
 local Config = require(ReplicatedStorage:WaitForChild("KeybindConfig"))
 local KBM = require(script.Parent:WaitForChild("KeybindManager"))
 local Remote = ReplicatedStorage:WaitForChild("KeybindPersistence")
-local gameplayMap
-local HttpService = game:GetService("HttpService")
+
+local gameplayMap -- live reference—filled in during initial populate
 
 ---------------------------------------------------------------
--- GUI SETUP (clone + grab from clone)
+-- GUI SET‑UP  (clone template, then grab references)
 ---------------------------------------------------------------
 local guiTemplate = ReplicatedStorage:WaitForChild("KeybindsScreenGui")
-local gui         = guiTemplate:Clone()
-gui.Name          = "KeybindsScreenGui"
-gui.ResetOnSpawn  = false
-gui.Enabled       = false
-gui.Parent        = Players.LocalPlayer:WaitForChild("PlayerGui")
+local gui = guiTemplate:Clone()
+gui.Name = "KeybindsScreenGui"
+gui.ResetOnSpawn = false
+gui.Enabled = false
+gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
-local frameMain    = gui:WaitForChild("Frame_Main")
-local scrolling    = frameMain:WaitForChild("ScrollingFrame_Actions")
-local footer       = frameMain:WaitForChild("Frame_Footer")
+-- primary panels & widgets
+local frameMain = gui:WaitForChild("Frame_Main")
+local scrolling = frameMain:WaitForChild("ScrollingFrame_Actions")
+local footer = frameMain:WaitForChild("Frame_Footer")
 
-local btnReset     = footer:WaitForChild("TextButton_ResetDefaults")
-local btnClose     = footer:WaitForChild("TextButton_Close")
-local btnExport    = footer:WaitForChild("TextButton_Export")
-local btnImport    = footer:WaitForChild("TextButton_Import")
+local btnReset = footer:WaitForChild("TextButton_ResetDefaults")
+local btnClose = footer:WaitForChild("TextButton_Close")
+local btnExport = footer:WaitForChild("TextButton_Export")
+local btnImport = footer:WaitForChild("TextButton_Import")
 
-local modal        = gui:WaitForChild("Frame_ModalOverlay")
-local txtJSON      = modal:WaitForChild("TextBox_JSON")
-local btnLoad      = modal:WaitForChild("TextButton_Load")
-local btnCancel    = modal:WaitForChild("TextButton_Cancel")
+local modal = gui:WaitForChild("Frame_ModalOverlay")
+local txtJSON = modal:WaitForChild("TextBox_JSON")
+local btnLoad = modal:WaitForChild("TextButton_Load")
+local btnCancel = modal:WaitForChild("TextButton_Cancel")
 
 ---------------------------------------------------------------
 -- HELPER FUNCTIONS
 ---------------------------------------------------------------
+--[[  pauseRobloxJump / resumeRobloxJump
+      Roblox’s ControlModule registers the “jumpAction” Context‑Action.
+      To prevent Space from jumping while the menu is open, and while
+      jump is binded to another key, we unbind it and restore it afterwards.
+]]
 local function pauseRobloxJump()
-    -- ControlModule registers the action name "jumpAction"
-    game:GetService("ContextActionService"):UnbindAction("jumpAction")
+    CAS:UnbindAction("jumpAction")
 end
 
 local function resumeRobloxJump()
-    -- Re‑create the default binding so Space works in menus, chat, etc.
-    -- We call the same Roblox API ControlModule uses:
-    game:GetService("ContextActionService"):BindAction(
+    CAS:BindAction(
         "jumpAction",
         function(_, state)
             if state == Enum.UserInputState.Begin then
-                local humanoid = Players.LocalPlayer.Character
-                    and Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    humanoid.Jump = true
-                end
+                local hum = Players.LocalPlayer.Character
+                         and Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Jump = true end
             end
             return Enum.ContextActionResult.Pass
         end,
@@ -72,19 +79,20 @@ local function resumeRobloxJump()
     )
 end
 
+-- auto‑resize ScrollFrame to its UIListLayout
 local function resizeCanvas()
     local layout = scrolling:FindFirstChildOfClass("UIListLayout")
-    scrolling.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 8)
+    scrolling.CanvasSize = UDim2.new(0,0,0, layout.AbsoluteContentSize.Y + 8)
 end
 
+-- push new live map into KeybindManager
 local function applyMapToManager(map)
-    KBM.SetContext("Gameplay", map)        -- live table reference
+    KBM.SetContext("Gameplay", map)
 end
 
 ---------------------------------------------------------------
--- MENU‑TOGGLE HINT
+-- INITIALIZE KEYBIND HINT
 ---------------------------------------------------------------
--- Create a tiny ScreenGui with a TextLabel in the bottom‑left
 local hintGui = Instance.new("ScreenGui")
 hintGui.Name = "ToggleMenuHint"
 hintGui.ResetOnSpawn = false
@@ -92,26 +100,27 @@ hintGui.DisplayOrder = 50
 hintGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
 local hintLabel = Instance.new("TextLabel")
-hintLabel.Name = "Hint"
 hintLabel.AnchorPoint = Vector2.new(0,1)
-hintLabel.Position = UDim2.new(0, 16, 1, -16)
-hintLabel.Size = UDim2.new(0, 200, 0, 24)
+hintLabel.Position = UDim2.new(0,16,1,-16)
+hintLabel.Size = UDim2.new(0,220,0,24)
 hintLabel.BackgroundTransparency = 1
 hintLabel.Font = Enum.Font.Gotham
 hintLabel.TextSize = 25
-hintLabel.TextColor3 = Color3.fromRGB(255,255,255)
+hintLabel.TextColor3 = Color3.new(1,1,1)
 hintLabel.TextXAlignment = Enum.TextXAlignment.Left
 hintLabel.Parent = hintGui
 
--- Function to update the hint text from the live binding
+-- change which letter is shown in the hint to open settings
 local function updateToggleHint()
-    local key = gameplayMap.ToggleMenu or Enum.KeyCode.K
-    hintLabel.Text = ("Press [%s] to change keybinds"):format(key.Name)
+    local keyName = (gameplayMap.ToggleMenu or Enum.KeyCode.K).Name
+    hintLabel.Text = ("Press [%s] to change keybinds"):format(keyName)
 end
 
+---------------------------------------------------------------
+-- ROW CREATION & REBIND FLOW
+---------------------------------------------------------------
 --[[  createRow(actionName, keyCode)
-      Clones the template frame, wires up the Rebind button,
-      and inserts it into the scrolling list.
+      Clones template, wires Rebind button, adds to ScrollFrame.
 ]]
 local function createRow(actionName, keyCode)
     local row = scrolling.Template_ActionEntry:Clone()
@@ -120,39 +129,35 @@ local function createRow(actionName, keyCode)
     row.TextButton_CurrentKey.Text = keyCode.Name
     row.Visible = true
 
-    ----------------------------------------------------------------
-    -- REBIND FLOW
-    ----------------------------------------------------------------
+    -- --- Rebind button logic ---------------------------------
     row.TextButton_Rebind.MouseButton1Click:Connect(function()
         row.TextButton_CurrentKey.Text = "..."
-        local connection; connection = UIS.InputBegan:Connect(function(input, processed)
-            if processed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end -- ignore chat / UI capture and non keyboard presses
-            connection:Disconnect()
+        local conn; conn = UIS.InputBegan:Connect(function(input, processed)
+            if processed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            conn:Disconnect()
 
             local newKey = input.KeyCode
             local map = gameplayMap
-            for otherAction, bound in pairs(map) do
-                if bound == newKey and otherAction ~= actionName then
-                    -- swap keys visually & in map
-                    map[otherAction] = map[actionName]
-                    local otherRow = scrolling:FindFirstChild(otherAction)
+
+            -- if the new key is already in use, swap with other action
+            for other, bound in pairs(map) do
+                if bound == newKey and other ~= actionName then
+                    map[other] = map[actionName]
+                    local otherRow = scrolling:FindFirstChild(other)
                     if otherRow then
-                        otherRow.TextButton_CurrentKey.Text = map[otherAction].Name
+                        otherRow.TextButton_CurrentKey.Text = map[other].Name
                     end
                     break
                 end
             end
 
-            -- assign new key to this action
             map[actionName] = newKey
             row.TextButton_CurrentKey.Text = newKey.Name
 
-            -- if this was the ToggleMenu entry, refresh our hint
             if actionName == "ToggleMenu" then
                 updateToggleHint()
             end
 
-            -- persist
             Remote:InvokeServer("save", map)
             resizeCanvas()
         end)
@@ -161,18 +166,20 @@ local function createRow(actionName, keyCode)
     row.Parent = scrolling
 end
 
+---------------------------------------------------------------
+-- RESET‑TO‑DEFAULTS
+---------------------------------------------------------------
 local function resetToDefaults()
     gameplayMap = table.clone(Config.contexts.Gameplay)
     applyMapToManager(gameplayMap)
 
-    -- refresh rows
     for _, child in ipairs(scrolling:GetChildren()) do
         if child:IsA("Frame") and child ~= scrolling.Template_ActionEntry then
             child:Destroy()
         end
     end
-    for action, key in pairs(gameplayMap) do
-        createRow(action, key)
+    for act, key in pairs(gameplayMap) do
+        createRow(act, key)
     end
     resizeCanvas()
     Remote:InvokeServer("save", gameplayMap)
@@ -180,9 +187,11 @@ local function resetToDefaults()
 end
 btnReset.MouseButton1Click:Connect(resetToDefaults)
 
+---------------------------------------------------------------
+-- MENU TOGGLE  (open / close screen)
+---------------------------------------------------------------
 local function toggleMenu(state)
     gui.Enabled = state
-    -- pause gameplay actions while menu is open
     if state then
         pauseRobloxJump()
         KBM.SetContext("Menu", { ToggleMenu = gameplayMap.ToggleMenu })
@@ -192,31 +201,31 @@ local function toggleMenu(state)
     end
 end
 
+-- Bind ToggleMenu through KBM (so players can rebind it)
 KBM.BindAction("ToggleMenu", function()
     toggleMenu(not gui.Enabled)
 end)
 btnClose.MouseButton1Click:Connect(function() toggleMenu(false) end)
 
 ---------------------------------------------------------------
--- INITIAL POPULATE
+-- INITIAL POPULATE (load & build rows)
 ---------------------------------------------------------------
-local loaded = Remote:InvokeServer("load")
-gameplayMap = loaded.Gameplay or Config.contexts.Gameplay
-applyMapToManager(gameplayMap)
+do
+    local loaded = Remote:InvokeServer("load")
+    gameplayMap = loaded.Gameplay or table.clone(Config.contexts.Gameplay)
 
-for action, key in pairs(gameplayMap) do
-    createRow(action, key)
+    applyMapToManager(gameplayMap)
+
+    for act, key in pairs(gameplayMap) do
+        createRow(act, key)
+    end
+    resizeCanvas()
+    updateToggleHint()
 end
-resizeCanvas()
-
--- Initial call
-updateToggleHint()
 
 ---------------------------------------------------------------
--- EXPORT / IMPORT LOGIC
+-- EXPORT / IMPORT  (JSON modal pop‑up)
 ---------------------------------------------------------------
-
--- show modal
 local function showModal(text)
     frameMain.Visible = false
     txtJSON.Text = text or ""
@@ -224,79 +233,79 @@ local function showModal(text)
     txtJSON:CaptureFocus()
 end
 
--- hide modal
 local function hideModal()
     frameMain.Visible = true
     modal.Visible = false
-    gui.Enabled = true      -- re‑enable menu input if you disabled it
 end
 
--- Export: JSON‑encode and show
+-- Export current map
 btnExport.MouseButton1Click:Connect(function()
-    local data = gameplayMap          -- table of Enum.KeyCode values
-    -- convert to name‑only table
     local exportTbl = {}
-    for action, keyEnum in pairs(data) do
-        exportTbl[action] = keyEnum.Name
+    for act, keyEnum in pairs(gameplayMap) do
+        exportTbl[act] = keyEnum.Name
     end
     local json = HttpService:JSONEncode(exportTbl)
     showModal(json)
 end)
 
--- Import: clear box and show
+-- Prepare blank import box
 btnImport.MouseButton1Click:Connect(function()
-    showModal("")                     -- empty for paste
+    showModal("")
 end)
 
--- Cancel
-btnCancel.MouseButton1Click:Connect(function()
-    hideModal()
-end)
+btnCancel.MouseButton1Click:Connect(hideModal)
 
--- Load: parse & apply
+-- Apply imported JSON
 btnLoad.MouseButton1Click:Connect(function()
-    local success, tbl = pcall(function()
-        return HttpService:JSONDecode(txtJSON.Text)
-    end)
-    if not success or type(tbl) ~= "table" then
+    local ok, tbl = pcall(HttpService.JSONDecode, HttpService, txtJSON.Text)
+    if not ok or type(tbl) ~= "table" then
         txtJSON.Text = "❌ Invalid JSON"
         return
     end
 
-    -- build new map, validate each key
+    -- validate & build new table
     local newMap = {}
-    for action, name in pairs(tbl) do
-        local enumKey = Enum.KeyCode[name]
-        if enumKey and Config.contexts.Gameplay[action] then
-            newMap[action] = enumKey
+    for act, name in pairs(tbl) do
+        local ek = Enum.KeyCode[name]
+        if ek and Config.contexts.Gameplay[act] then
+            newMap[act] = ek
         else
-            newMap[action] = Config.contexts.Gameplay[action]
+            newMap[act] = Config.contexts.Gameplay[act]
         end
     end
-    -- fill any missing defaults
-    for action, def in pairs(Config.contexts.Gameplay) do
-        if newMap[action] == nil then
-            newMap[action] = def
-        end
+    for act, def in pairs(Config.contexts.Gameplay) do
+        newMap[act] = newMap[act] or def
     end
 
-    -- apply & refresh UI
     gameplayMap = newMap
     applyMapToManager(gameplayMap)
 
-    -- rebuild rows
-    for _, child in ipairs(scrolling:GetChildren()) do
-        if child:IsA("Frame") and child ~= scrolling.Template_ActionEntry then
-            child:Destroy()
+    -- rebuild UI
+    for _, c in ipairs(scrolling:GetChildren()) do
+        if c:IsA("Frame") and c ~= scrolling.Template_ActionEntry then
+            c:Destroy()
         end
     end
-    for action, key in pairs(gameplayMap) do
-        createRow(action, key)
+    for act, key in pairs(gameplayMap) do
+        createRow(act, key)
     end
     resizeCanvas()
     updateToggleHint()
 
-    -- persist & close
     Remote:InvokeServer("save", gameplayMap)
     hideModal()
+end)
+
+---------------------------------------------------------------
+-- RESPAWN (re‑apply context after death)
+---------------------------------------------------------------
+Players.LocalPlayer.CharacterAdded:Connect(function()
+    if gui.Enabled then
+        pauseRobloxJump()
+        KBM.SetContext("Menu", { ToggleMenu = gameplayMap.ToggleMenu })
+    else
+        resumeRobloxJump()
+        KBM.SetContext("Gameplay", gameplayMap)
+    end
+    updateToggleHint()
 end)
