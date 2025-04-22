@@ -6,26 +6,23 @@
 
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "KeybindConfig": { "$path": "src/shared/KeybindConfig.lua" }
+      "KeybindConfig": { "$path": "src/shared/KeybindConfig.lua" },
+      "KeybindsScreenGui": { "$path": "src/shared/KeybindsScreenGui.rbxmx" }
     },
 
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "KeybindPersistence": {
-        "$path": "src/server/KeybindPersistence.Server.lua"
+        "$path": "src/server/KeybindPersistence.server.lua"
       }
     },
 
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "KeybindManager": { "$path": "src/client/KeybindManager.Client.lua" },
-        "KeybindMenu":   { "$path": "src/client/KeybindMenu.Client.lua" }
+        "KeybindManager": { "$path": "src/client/KeybindManager.lua" },
+        "KeybindMenu":   { "$path": "src/client/KeybindMenu.client.lua" }
       }
-    },
-
-    "StarterGui": {
-      "$path": "src/client/StarterGui"
     }
   }
 }
