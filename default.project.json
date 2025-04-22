@@ -1,0 +1,31 @@
+{
+  "name": "KeybindManager",
+
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "KeybindConfig": { "$path": "src/shared/KeybindConfig.lua" }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "KeybindPersistence": {
+        "$path": "src/server/KeybindPersistence.Server.lua"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "KeybindManager": { "$path": "src/client/KeybindManager.Client.lua" },
+        "KeybindMenu":   { "$path": "src/client/KeybindMenu.Client.lua" }
+      }
+    },
+
+    "StarterGui": {
+      "$path": "src/client/StarterGui"
+    }
+  }
+}
