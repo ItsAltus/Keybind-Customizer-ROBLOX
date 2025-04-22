@@ -21,7 +21,8 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "KeybindManager": { "$path": "src/client/KeybindManager.lua" },
-        "KeybindMenu":   { "$path": "src/client/KeybindMenu.client.lua" }
+        "KeybindMenu":   { "$path": "src/client/KeybindMenu.client.lua" },
+        "GameActions":   { "$path": "src/client/GameActions.client.lua" }
       }
     }
   }

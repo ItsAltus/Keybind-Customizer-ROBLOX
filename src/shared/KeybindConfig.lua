@@ -20,11 +20,13 @@ local Config = {
             Jump = Enum.KeyCode.Space,
             Dash = Enum.KeyCode.LeftShift,
             Interact = Enum.KeyCode.E,
+            ToggleMenu = Enum.KeyCode.K,
         },
 
         Menu = {
             Select = Enum.KeyCode.Return,
             Back = Enum.KeyCode.Escape,
+            ToggleMenu  = Enum.KeyCode.K,
         },
     },
 
@@ -35,6 +37,7 @@ local Config = {
         Interact = "Interact",
         Select = "Select / Confirm",
         Back = "Back / Close",
+        ToggleMenu = "Open/Close Menu",
     },
 }
 
