@@ -7,7 +7,7 @@
 
 ## Overview
 
-*Keybind Customizer* is a standalone modular system designed for Roblox developers to easily implement fully customizable keybinds in their games. It features a robust UI for rebinding keys, a context-aware manager, JSON-powered inport and export, and full data persistence using `DataStoreService`.
+*Keybind Customizer* is a standalone modular system which implements fully customizable keybinds in a ROBLOX game. It features a clean and simple UI for rebinding keys, JSON-powered inport and export, and full data persistence using `DataStoreService`.
 
 ## Limitations
 
@@ -21,9 +21,6 @@
 
 - **Safe Rebinding UI:**  
   Detects and prevents duplicate binds with automatic swaps. Prevents binding to mouse clicks or non-keyboard inputs.
-
-- **Context Switching:**  
-  Keybind contexts (e.g., Gameplay vs Menu) ensure inputs are disabled or remapped appropriately while UI is open.
 
 - **Persistent Profiles:**  
   Binds are saved to Roblox’s `DataStoreService`, ensuring players keep their preferences between sessions.
@@ -62,10 +59,4 @@ The system is organized into server-side, client-side, and shared scripts, and i
   - **Reset Defaults**: Restores the default `Gameplay` map.  
   - **Export**: Serializes your binds as JSON.  
   - **Import**: Paste a JSON keybind table to load custom binds.
-
-## Credits
-
-- **DrChicken2424:**  
-  Developer and author of *Keybind Customizer*.
-
 ---
